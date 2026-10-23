@@ -22,7 +22,13 @@ from isaacsim.examples.interactive.base_sample import BaseSample
 from ..crab_core import paths
 from ..crab_core.app_controller import CrabApp
 from ..crab_core.keys import KeyEdges, carb_to_vocabulary
-from ..crab_isaac.robot import CrabRobot, add_ground, configure_physics, use_fabric_async
+from ..crab_isaac.robot import (
+    CrabRobot,
+    add_ground,
+    add_lights,
+    configure_physics,
+    use_fabric_async,
+)
 
 PHYSICS_DT = 0.001  # the training timestep; the controller ticks every 5th step (200 Hz)
 RENDERING_DT = 0.02
@@ -66,6 +72,7 @@ class CrabExample(BaseSample):
         world = self.get_world()
         configure_physics(world)
         add_ground(world)
+        add_lights(omni.usd.get_context().get_stage())
         self.robot = CrabRobot(world)
         set_camera_view(eye=[0.55, 0.55, 0.35], target=[0.0, 0.0, 0.06],
                         camera_prim_path=CAMERA_PRIM)

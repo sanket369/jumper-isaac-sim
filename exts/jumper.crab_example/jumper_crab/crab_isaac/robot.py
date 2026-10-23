@@ -51,6 +51,23 @@ def add_ground(world, friction: float | None = None) -> None:
                                 physics_material=material, size=50.0))
 
 
+def add_lights(stage) -> None:
+    """A dome for soft fill and a sun for shadows, so the robot is lit in any viewport mode.
+
+    Without lights of its own the stage is black in the viewport's "Stage Lights"
+    mode (only the "Default" camera light showed the robot). The recorded videos
+    use the same two lights.
+    """
+    from pxr import Gf, UsdGeom, UsdLux
+
+    dome = UsdLux.DomeLight.Define(stage, "/World/Lights/Dome")
+    dome.CreateIntensityAttr(900.0)
+    sun = UsdLux.DistantLight.Define(stage, "/World/Lights/Sun")
+    sun.CreateIntensityAttr(2500.0)
+    sun.CreateAngleAttr(1.0)
+    UsdGeom.Xformable(sun).AddRotateXYZOp().Set(Gf.Vec3f(-50.0, 0.0, 30.0))
+
+
 def use_fabric() -> None:
     """Publish physics results to Fabric instead of writing them to USD.
 

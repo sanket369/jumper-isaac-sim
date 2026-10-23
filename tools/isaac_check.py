@@ -88,6 +88,7 @@ from jumper_crab.crab_isaac.robot import (  # noqa: E402
     ROBOT_PRIM,
     CrabRobot,
     add_ground,
+    add_lights,
     articulation_report,
     configure_physics,
     quat_to_matrix,
@@ -119,19 +120,14 @@ class IsaacRecorder:
     def __init__(self, world, stage, path: Path) -> None:
         import imageio.v2 as imageio
         import omni.replicator.core as rep
-        from pxr import Gf, UsdGeom, UsdLux
+        from pxr import Gf, UsdGeom
 
         cam = UsdGeom.Camera.Define(stage, self.CAMERA)
         cam.CreateFocalLengthAttr(video.focal_length_mm())
         cam.CreateHorizontalApertureAttr(20.955)
         cam.CreateVerticalApertureAttr(20.955)
         cam.CreateClippingRangeAttr(Gf.Vec2f(0.01, 100.0))
-        dome = UsdLux.DomeLight.Define(stage, "/World/VideoDome")
-        dome.CreateIntensityAttr(900.0)
-        sun = UsdLux.DistantLight.Define(stage, "/World/VideoSun")
-        sun.CreateIntensityAttr(2500.0)
-        sun.CreateAngleAttr(1.0)
-        UsdGeom.Xformable(sun).AddRotateXYZOp().Set(Gf.Vec3f(-50.0, 0.0, 30.0))
+        add_lights(stage)
 
         self._tiled_floor(stage)
         self.world = world
