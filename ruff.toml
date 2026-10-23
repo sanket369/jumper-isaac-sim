@@ -1,0 +1,8 @@
+line-length = 100
+extend-exclude = ["third_party", "data"]
+
+[lint]
+select = ["E", "F", "W", "I"]
+
+[lint.isort]
+known-first-party = ["jumper_crab", "export_model"]

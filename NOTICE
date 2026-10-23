@@ -1,0 +1,15 @@
+jumper-isaac-sim
+Copyright 2026 Sanket Khade.
+
+Licensed under the Apache License, Version 2.0 (see LICENSE).
+
+This repository runs the Jumper robot, its policies and its controller, by
+KingKong Robotics (https://github.com/KingKongRobotics/jumper), Copyright 2026
+KingKong Robotics, licensed under the Apache License, Version 2.0. None of
+Jumper's files are included here: bootstrap.sh clones Jumper at a pinned commit
+into third_party/jumper, where its own LICENSE and NOTICE apply. The files this
+repository generates from it (data/crab_model.*, data/crab.usd) are derived from
+Jumper's robot model and fall under Jumper's licence.
+
+NVIDIA Isaac Sim is not included either; it is installed separately under
+NVIDIA's own licence.

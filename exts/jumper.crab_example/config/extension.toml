@@ -1,0 +1,16 @@
+[package]
+version = "1.0.0"
+title = "Jumper crab: a MuJoCo policy in Isaac Sim"
+description = "The Jumper crab robot walking in Isaac Sim on its MuJoCo-trained policy, driven by the robot's own controller. Opens as Examples > Policy > Crab."
+category = "Simulation"
+keywords = ["robot", "policy", "locomotion", "jumper", "mujoco"]
+
+[dependencies]
+"isaacsim.core.api" = {}
+"isaacsim.examples.browser" = {}
+"isaacsim.examples.interactive" = {}
+
+# The package root (jumper_crab) also holds crab_core, which has no Isaac imports so
+# tools/mujoco_reference.py can run it in the Jumper venv; only `example` is Kit's.
+[[python.module]]
+name = "jumper_crab.example"
