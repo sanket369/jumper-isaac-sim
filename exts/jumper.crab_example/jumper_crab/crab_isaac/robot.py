@@ -49,6 +49,19 @@ def add_ground(world, friction: float | None = None) -> None:
     px.CreateRestitutionCombineModeAttr().Set("min")
     world.scene.add(GroundPlane(prim_path="/World/GroundPlane", z_position=0.0,
                                 physics_material=material, size=50.0))
+    # GroundPlane makes two colliders: `geom`, bound to the material above, and an
+    # infinite `collisionPlane` bound only to a visual material, which PhysX then gives
+    # its default friction (0.5). The feet take the larger of two frictions, so the
+    # floor never went below 0.5: at friction 0 the robot still walked at 0.72 m/s
+    # (Isaac Sim 5.1, 2026-10-24). Training friction (1.2) was never affected.
+    from isaacsim.core.utils.stage import get_current_stage
+    from pxr import UsdShade
+
+    stage = get_current_stage()
+    shade = UsdShade.Material(material.prim)
+    for path in ("/World/GroundPlane/collisionPlane", "/World/GroundPlane/geom"):
+        UsdShade.MaterialBindingAPI.Apply(stage.GetPrimAtPath(path)).Bind(
+            shade, UsdShade.Tokens.weakerThanDescendants, "physics")
 
 
 def add_lights(stage) -> None:

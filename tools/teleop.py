@@ -28,6 +28,8 @@ async def main() -> None:
         await _sample.load_world_async()
         print("[teleop] the crab is loaded. Click the viewport, then W / S, A / D, J / L "
               "to drive; C toggles the follow camera. Keys: docs/CONTROLS.md", flush=True)
+        if _sample.conditions.active():
+            print(f"[teleop] conditions: {_sample.conditions.describe()}", flush=True)
     except Exception:
         traceback.print_exc()
         print("[teleop] loading failed; the error is above.", flush=True)

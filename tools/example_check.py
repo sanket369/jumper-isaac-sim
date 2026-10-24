@@ -68,6 +68,20 @@ async def main() -> int:
     ref = json.loads((paths.DATA / "mujoco_reference.json").read_text())
     ok = m["max_tilt_deg"] < 15.0
     say(f"[example] {'PASS' if ok else 'FAIL'} upright: max tilt {m['max_tilt_deg']:.1f} deg")
+    if sample.conditions.active():
+        # MuJoCo drove the trained world; under a condition the speeds are the finding,
+        # not something to match. Upright is still required.
+        say(f"[example] conditions: {sample.conditions.describe()} -- speeds reported, "
+            "not compared")
+        for name, key in (("forward", "vx"), ("back", "vx"), ("right", "vy"), ("turn", "yaw_rate")):
+            say(f"[example] {name} {key}: {m[name][key]:+.3f} (MuJoCo, trained world: "
+                f"{ref[name][key]:+.3f})")
+        if m["final_height"] < 0.06:  # standing is ~0.10 m
+            say(f"[example] note: the robot ended on its belly (base {m['final_height']:.3f} m): "
+                "past what it can carry under these conditions")
+        say(f"[example] {'ALL PASSED' if ok else 'SOME CHECKS FAILED'} (the run completed; "
+            "under conditions only falling over fails)")
+        return 0 if ok else 1
     for name, key in (("forward", "vx"), ("back", "vx"), ("right", "vy"), ("turn", "yaw_rate")):
         a, b = m[name][key], ref[name][key]
         rel = abs(a - b) / max(abs(b), 1e-6)

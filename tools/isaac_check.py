@@ -80,12 +80,15 @@ sys.excepthook = _fail
 import numpy as np  # noqa: E402
 from isaacsim.core.api import World  # noqa: E402
 from isaacsim.core.utils.stage import get_current_stage  # noqa: E402
-from pxr import PhysxSchema, Usd, UsdPhysics  # noqa: E402
 
 from jumper_crab.crab_core import paths, scenario, video  # noqa: E402
 from jumper_crab.crab_core.app_controller import CrabApp  # noqa: E402
+from jumper_crab.crab_isaac.conditions import (  # noqa: E402
+    MotorStrength,
+    add_payload,
+    set_grip_friction,
+)
 from jumper_crab.crab_isaac.robot import (  # noqa: E402
-    ROBOT_PRIM,
     CrabRobot,
     add_ground,
     add_lights,
@@ -204,17 +207,6 @@ class IsaacRecorder:
         print(f"[isaac] video: {self.frames} frames -> {self.path}", flush=True)
 
 
-def grip_materials(stage) -> list:
-    """The robot's materials combined with `max`: the feet and palm pads."""
-    found = []
-    for prim in Usd.PrimRange(stage.GetPrimAtPath(f"{ROBOT_PRIM}/materials")):
-        if prim.HasAPI(PhysxSchema.PhysxMaterialAPI):
-            mode = PhysxSchema.PhysxMaterialAPI(prim).GetFrictionCombineModeAttr().Get()
-            if mode == "max":
-                found.append(prim)
-    return found
-
-
 world = World(physics_dt=PHYSICS_DT, rendering_dt=0.02, stage_units_in_meters=1.0,
               backend="numpy", device="cpu")
 configure_physics(world)
@@ -222,13 +214,7 @@ add_ground(world, friction=args.friction)
 robot = CrabRobot(world)
 stage = get_current_stage()
 if args.friction is not None:
-    grips = grip_materials(stage)
-    if not grips:
-        raise RuntimeError("no grip material found to set the friction on")
-    for prim in grips:
-        api = UsdPhysics.MaterialAPI(prim)
-        api.GetStaticFrictionAttr().Set(args.friction)
-        api.GetDynamicFrictionAttr().Set(args.friction)
+    set_grip_friction(stage, args.friction)
 world.reset()
 robot.initialize()
 meta = robot.meta
@@ -267,13 +253,8 @@ ctx.set_gravity(-9.81)
 # The world as the sweep asks for it, after the asset checks.
 world.reset()
 if args.payload_kg:
-    view = robot.art._articulation_view
-    masses = np.asarray(view.get_body_masses()).reshape(1, -1).copy()
-    masses[0, rep["body_names"].index("base_link")] += args.payload_kg
-    view.set_body_masses(masses)
-actuator = dict(meta["actuator"])
-for key in ("plateau_torque", "force_limit", "continuous_torque"):
-    actuator[key] = actuator[key] * args.motor_strength
+    before, after = add_payload(robot, args.payload_kg)
+    print(f"[isaac] mass {before:.3f} kg -> {after:.3f} kg", flush=True)
 params = {
     "label": args.label,
     "friction": args.friction if args.friction is not None else "trained (1.2)",
@@ -289,8 +270,9 @@ recorder = None
 if args.video:
     recorder = IsaacRecorder(world, stage, args.video)
     recorder.warm_up(robot.base_pose()[0])
-capp = CrabApp(paths.BUNDLE, robot.dof_names, robot.limits, PHYSICS_DT, actuator,
+capp = CrabApp(paths.BUNDLE, robot.dof_names, robot.limits, PHYSICS_DT, meta["actuator"],
                log=lambda s: print(s, flush=True))
+MotorStrength(capp.servo).set(args.motor_strength)
 rec = scenario.Recorder()
 script = list(scenario.SCRIPT)
 steps = int(round(scenario.DURATION / PHYSICS_DT))

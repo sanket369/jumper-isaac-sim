@@ -14,6 +14,11 @@ works in the engine it was trained in has probably learned that engine's quirks.
 behaves the same in a second engine, it is far more likely to be robust. This is simulation
 only; nothing here has run on hardware.
 
+[Results](#results) · [Quick start](#quick-start) ·
+[Harder worlds](#can-jumper-survive-this-harder-worlds-same-policy) ·
+[Compare the engines](#compare-the-two-engines-yourself) · [How it works](#how-it-works) ·
+[Troubleshooting](#troubleshooting) · [Scope](#scope)
+
 ## Results
 
 The same scripted key presses (W, S, D, J, 5 s each) through the same controller in both
@@ -37,8 +42,9 @@ rigid ([why that is left visible](docs/PORTING.md#not-reproduced-soft-contact)).
 
 ## Quick start
 
-Needs Linux x86_64 with an NVIDIA RTX GPU and its driver, Python 3.12, and about 30 GB of
-disk if Isaac Sim is not installed yet. Tested on Ubuntu 24.04, which ships Python 3.12;
+Needs Linux x86_64 with an NVIDIA RTX GPU and its driver, Python 3.12, **Isaac Sim 5.1** (the
+standalone build; 6.0 is not supported yet), and about 30 GB of disk if Isaac Sim is not
+installed yet. Tested on Ubuntu 24.04, which ships Python 3.12;
 Ubuntu 22.04 should work with Python 3.12 from the deadsnakes PPA, but has not been tested.
 
 ```bash
@@ -72,6 +78,40 @@ All keys, including the dances, gestures and claw modes: [docs/CONTROLS.md](docs
 `./run_teleop.sh --browser` only enables the example instead; open it from
 **Window → Examples → Robotics Examples → Policy → Crab → LOAD**.
 
+## Can Jumper survive this? Harder worlds, same policy
+
+![Ice, a heavy backpack and a dying battery: the same policy in worlds it never trained in](media/survival.gif)
+
+The policy only ever saw its training world. These change the world under it, for real,
+and you drive it through them:
+
+```bash
+./run_teleop.sh --ice                 # floor friction 0.05, real ice (trained on 1.2)
+./run_teleop.sh --backpack            # +1 kg on the body (+39%), a box on its back
+./run_teleop.sh --battery             # motor power drains 100% -> 40% while you drive; R recharges
+./run_teleop.sh --ice --backpack      # they combine
+./run_teleop.sh --friction 0.2 --payload 0.5 --drain-seconds 40 --min-power 0.5   # any values
+```
+
+With a condition on, a small panel shows the motor power and the live speed. What the policy
+did (`tools/record_survival.py`, the scripted levels; Isaac Sim 5.1, 2026-10-24):
+
+| World | What changed | Walking speed | |
+|---|---|---|---|
+| As trained | floor 1.2, 2.54 kg, full power | 0.73 m/s | |
+| Ice | floor friction 0.05 | 0.68 m/s | slides a little turning on the spot |
+| No friction | floor friction 0 | 0.00 m/s | legs move, it gets nowhere |
+| Backpack | +1 kg (3.54 kg) | 0.69 m/s | still jumps: 0.221 m peak vs 0.224 m without |
+| Battery at 60% | torque limits x 0.6 | 0.70 m/s | hides it well |
+| Battery at 40% | torque limits x 0.4 | 0.21 m/s | struggles, tilts up to 7° |
+| All three at once | ice + backpack + battery to 40% | 0.72 m/s, then down | ends on its belly once the power is low |
+
+Each condition is physics, not a look: the floor *and* the feet's grip material get the
+friction (the pads take the larger of the two), the base link gets the mass as PhysX holds
+it, and the servo curve's three torque limits are scaled together. The ice floor, the box and
+the panel only make it visible. `tools/record_survival.py ice|backpack|battery OUT_DIR`
+records each level as a 1080p clip with its data.
+
 ## Compare the two engines yourself
 
 ```bash
@@ -79,6 +119,7 @@ All keys, including the dances, gestures and claw modes: [docs/CONTROLS.md](docs
 ./scripts/sim2sim_check.sh --mujoco        # re-run MuJoCo first
 ./scripts/sim2sim_check.sh --app           # also run the interactive example end to end
 ./scripts/sim2sim_check.sh --video clips/  # record both drives, same camera, same timing
+./scripts/sim2sim_check.sh --conditions    # also prove friction reaches the feet (friction 0: no motion)
 ```
 
 It passes when every speed is within 20% of MuJoCo's and the robot stays upright, after first
@@ -100,9 +141,9 @@ config/                 every pinned version (versions.env, jumper-constraints.t
 exts/jumper.crab_example/
   jumper_crab/
     crab_core/          no Isaac imports: controller loop, servo, keys, scripted drive
-    crab_isaac/         the articulation in a stage: state in, torque out
+    crab_isaac/         the articulation in a stage: state in, torque out; conditions.py
     example/            the interactive example (Examples > Policy > Crab)
-tools/                  export_model, build_usd, mujoco_reference, isaac_check, ...
+tools/                  export_model, build_usd, mujoco_reference, isaac_check, record_survival, ...
 scripts/                sim2sim_check.sh, lib.sh
 docs/                   PORTING.md, CONTROLS.md
 osmo/                   coming soon: the same check, automated with NVIDIA OSMO
@@ -111,9 +152,26 @@ osmo/                   coming soon: the same check, automated with NVIDIA OSMO
 Generated files go to `data/` and Jumper to `third_party/jumper/`; neither is committed.
 The Isaac Sim install is not modified apart from onnxruntime in its Python.
 
+## Troubleshooting
+
+- **"Isaac Sim 5.1.0 not found"**: pass the install, `./bootstrap.sh --isaac-sim PATH`. It is
+  remembered in `config/local.env` afterwards. Only 5.1 is accepted: the port was built and
+  measured on it.
+- **An active venv or conda environment**: no need to deactivate it. An active venv makes
+  Isaac Sim's full app start without its own bundled packages, so the scripts clear it (and
+  conda) before starting Isaac Sim.
+- **The first start is slow**: Isaac Sim compiles its shaders the first time, which can take a
+  few minutes. Later starts are much faster.
+- **The keys do nothing**: click the viewport first, so it has the keyboard focus.
+- **A black viewport**: fixed; the scene brings its own lights now. On an older checkout,
+  switch the viewport's lighting from "Stage Lights" to "Default".
+- **Something else**: `./scripts/sim2sim_check.sh --app` runs the whole example headless and
+  says which part fails.
+
 ## Scope
 
 - **Checked:** walking (Jumper's `locomotion` mode, policy `jumper.posture`) against MuJoCo.
+- **Measured, not compared:** the harder worlds above (MuJoCo drove only the trained one).
 - **Runs, not checked:** the other modes (jump, gestures, dances, claw).
 - **Tested on:** Ubuntu 24.04, Isaac Sim 5.1.0, RTX PRO 5000 Blackwell laptop GPU, driver
   580.178.04.

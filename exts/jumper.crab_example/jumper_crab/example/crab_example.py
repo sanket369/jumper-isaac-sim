@@ -22,6 +22,15 @@ from isaacsim.examples.interactive.base_sample import BaseSample
 from ..crab_core import paths
 from ..crab_core.app_controller import CrabApp
 from ..crab_core.keys import KeyEdges, carb_to_vocabulary
+from ..crab_isaac.conditions import (
+    Battery,
+    Conditions,
+    MotorStrength,
+    add_backpack,
+    add_ice_floor,
+    add_payload,
+    set_grip_friction,
+)
 from ..crab_isaac.robot import (
     CrabRobot,
     add_ground,
@@ -34,6 +43,8 @@ PHYSICS_DT = 0.001  # the training timestep; the controller ticks every 5th step
 RENDERING_DT = 0.02
 CAMERA_PRIM = "/OmniverseKit_Persp"
 FOLLOW_KEY = "C"  # not a key the controller reads
+RECHARGE_KEY = "R"  # not a key the controller reads either (controller/vocabulary.json)
+HUD_EVERY = 50  # physics steps between readout updates (20 Hz)
 
 
 def log(message: str) -> None:
@@ -61,6 +72,11 @@ class CrabExample(BaseSample):
         self._follow = True
         self._last_base_xy = None
         self._physics_steps = 0
+        # Harder worlds, from run_teleop.sh --ice / --backpack / --battery.
+        self.conditions = Conditions.from_env()
+        self.battery: Battery | None = None
+        self._hud = None
+        self._hud_xy = None
 
     # ── loading ────────────────────────────────────────────────────────
 
@@ -71,9 +87,16 @@ class CrabExample(BaseSample):
     def setup_scene(self) -> None:
         world = self.get_world()
         configure_physics(world)
-        add_ground(world)
-        add_lights(omni.usd.get_context().get_stage())
+        cond = self.conditions
+        add_ground(world, friction=cond.friction)
+        stage = omni.usd.get_context().get_stage()
+        add_lights(stage)
         self.robot = CrabRobot(world)
+        if cond.friction is not None:
+            set_grip_friction(stage, cond.friction)
+            add_ice_floor(stage)
+        if cond.payload_kg:
+            add_backpack(stage)
         set_camera_view(eye=[0.55, 0.55, 0.35], target=[0.0, 0.0, 0.06],
                         camera_prim_path=CAMERA_PRIM)
 
@@ -82,6 +105,12 @@ class CrabExample(BaseSample):
         self.app = CrabApp(paths.BUNDLE, self.robot.dof_names, self.robot.limits,
                            PHYSICS_DT, self.robot.meta["actuator"], log=log)
         self.app.key_source = self._keys
+        motor = MotorStrength(self.app.servo)
+        if self.conditions.battery:
+            self.battery = Battery(motor, self.conditions.drain_s, self.conditions.min_strength)
+        if self.conditions.active():
+            log(f"[crab] conditions: {self.conditions.describe()}")
+            self._build_hud()
         log(f"[crab] bundle {paths.BUNDLE}")
         log(f"[crab] modes: {', '.join(sorted(self.app.sessions))}; controller ticks at "
             f"{self.app.control_hz:g} Hz, every {self.app.decimation} physics steps")
@@ -119,6 +148,10 @@ class CrabExample(BaseSample):
         self._drop_subscriptions()
         self.robot = None
         self.app = None
+        self.battery = None
+        if self._hud is not None:
+            self._hud.destroy()
+            self._hud = None
 
     def world_cleanup(self) -> None:
         self._drop_subscriptions()
@@ -149,14 +182,51 @@ class CrabExample(BaseSample):
             for name in self._keys.release_all():
                 self.app.key(name, False)
             self.app.reset()
+            if self.conditions.payload_kg:
+                # PhysX re-reads the masses from the USD on every restart.
+                before, after = add_payload(self.robot, self.conditions.payload_kg)
+                log(f"[crab] backpack: {before:.2f} kg -> {after:.2f} kg")
+            if self.battery is not None:
+                self.battery.recharge(0.0)
             self._last_base_xy = None
+            self._hud_xy = None
             self._needs_init = False
             log("[crab] robot at the stance; controller started")
+        if self.battery is not None:
+            self.battery.update(self.app.physics_count * PHYSICS_DT)
         state = self.robot.state()
         self.robot.apply(self.app.physics_step(state), state.joint_vel)
         self._physics_steps += 1
         if self._follow and self._physics_steps % 20 == 0:
             self._follow_camera()
+        if self._hud is not None and self._physics_steps % HUD_EVERY == 0:
+            self._update_hud()
+
+    # ── the readout (only with a condition on) ─────────────────────────
+
+    def _build_hud(self) -> None:
+        import omni.ui as ui
+
+        self._hud = ui.Window("Crab: conditions", width=340, height=190)
+        self._power = ui.SimpleFloatModel(1.0)
+        with self._hud.frame:
+            with ui.VStack(spacing=6):
+                ui.Label(self.conditions.describe(), word_wrap=True, height=44)
+                self._power_label = ui.Label("motor power 100%", height=22)
+                ui.ProgressBar(self._power, height=22)
+                self._speed_label = ui.Label("speed 0.00 m/s", height=22)
+                if self.battery is not None:
+                    ui.Label(f"{RECHARGE_KEY}: recharge the battery", height=22)
+
+    def _update_hud(self) -> None:
+        k = self.battery.motor.k if self.battery is not None else 1.0
+        self._power.set_value(k)
+        self._power_label.text = f"motor power {k * 100:.0f}%"
+        xy = self.robot.base_pose()[0][:2].copy()
+        if self._hud_xy is not None:
+            speed = float(((xy - self._hud_xy) ** 2).sum() ** 0.5) / (HUD_EVERY * PHYSICS_DT)
+            self._speed_label.text = f"speed {speed:.2f} m/s"
+        self._hud_xy = xy
 
     def _follow_camera(self) -> None:
         """Carry the camera along with the robot, keeping the person's view of it."""
@@ -179,6 +249,10 @@ class CrabExample(BaseSample):
             return True  # repeats carry nothing: a held key is held until released
         name = event.input.name if hasattr(event.input, "name") else str(event.input)
         down = event.type == carb.input.KeyboardEventType.KEY_PRESS
+        if name == RECHARGE_KEY and down and self.battery is not None and self.app is not None:
+            self.battery.recharge(self.app.physics_count * PHYSICS_DT)
+            log("[crab] battery recharged")
+            return True
         if name == FOLLOW_KEY and down:
             self._follow = not self._follow
             self._last_base_xy = None

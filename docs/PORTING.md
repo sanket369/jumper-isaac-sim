@@ -87,3 +87,27 @@ Only walking (the `locomotion` mode, policy `jumper.posture`) is compared agains
 bundle's other modes (claw, jump, dances and gestures) run through the same controller and
 load in the example, but their behaviour in Isaac Sim has not been checked. The claw modes
 use a different training task (`jumper.five_foot`) than the one the USD is exported from.
+
+## Harder worlds (`jumper_crab/crab_isaac/conditions.py`)
+
+The same policy in worlds it never trained in, for `run_teleop.sh --ice / --backpack /
+--battery`, `tools/isaac_check.py --friction / --payload-kg / --motor-strength` and
+`tools/record_survival.py`. One module, so a condition is the same physics everywhere.
+
+- **Friction** goes on the ground's material and on the feet's grip material together. The
+  grip pads combine with `max`, so lowering the ground alone would change nothing.
+- **Payload** is added to the base link's mass as PhysX holds it (`set_body_masses`), and
+  re-applied after every restart, because a stop re-reads the masses from the USD.
+- **Motor strength** scales the servo curve's three torque limits together: the plateau, the
+  hard limit and the continuous (thermal) torque. The law is the one the policy trained under,
+  only weaker; the battery lowers it with simulated time.
+
+**A gotcha worth knowing.** Isaac Sim's `GroundPlane` creates two colliders: a mesh bound to
+the physics material you pass, and an infinite `collisionPlane` bound only to a visual
+material, which PhysX therefore gives its default friction of 0.5. With the feet taking the
+larger of two frictions, the floor could never go below 0.5: at friction 0 the robot still
+walked at 0.72 m/s, and every low-friction row read PASS. `robot.add_ground` binds the
+material to both colliders. Training friction (1.2) was never affected, nor was anything
+compared with MuJoCo. `scripts/sim2sim_check.sh --conditions` keeps it honest: at friction 0
+the robot must not get anywhere, and it fails if it does (checked against the unfixed
+ground, where it fails as it should).
